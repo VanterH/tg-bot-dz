@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки{% endblock %}
+{% block page_title %}Управление заявками{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <label>Фильтр по статусу:</label>
+    <select id="statusFilter" class="form-select w-auto" onchange="filterStatus()">
+        <option value="">Все</option>
+        <option value="waiting_confirm" {% if current_status =='waiting_confirm' %}selected{% endif %}>Ожидают подтверждения</option>
+        <option value="paid" {% if current_status =='paid' %}selected{% endif %}>Оплачено</option>
+        <option value="rejected" {% if current_status =='rejected' %}selected{% endif %}>Отклонено</option>
+    </select>
+</div>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Клиент</th>
+            <th>Услуга</th>
+            <th>Статус</th>
+            <th>Сумма</th>
+            <th>Дата консультации</th>
+            <th>Действия</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for booking in bookings %}
+        <tr>
+            <td>{{ booking.id }}</td>
+            <td>{{ booking.user_name }}</td>
+            <td>{{ booking.service_name }}</td>
+            <td>
+                {% if booking.payment_status == 'waiting_confirm' %}
+                <span class="badge bg-warning">Ожидает</span>
+                {% elif booking.payment_status == 'paid' %}
+                <span class="badge bg-success">Оплачено</span>
+                {% else %}
+                <span class="badge bg-danger">Отклонено</span>
+                {% endif %}
+            </td>
+            <td>{{ booking.payment_currency }}</td>
+            <td>{{ booking.consultation_datetime }}</td>
+            <td>
+                {% if booking.payment_status == 'waiting_confirm' %}
+                <button class="btn btn-sm btn-success" onclick="confirmPayment({{ booking.id }})">Подтвердить</button>
+                <button class="btn btn-sm btn-danger" onclick="rejectPayment({{ booking.id }})">Отклонить</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+function filterStatus() {
+    const status = document.getElementById('statusFilter').value;
+    window.location.href = `/admin/bookings?status=${status}`;
+}
+
+function confirmPayment(bookingId) {
+    fetch(`/admin/booking/${bookingId}/confirm`, {method: 'POST'})
+        .then(() => location.reload());
+}
+
+function rejectPayment(bookingId) {
+    fetch(`/admin/booking/${bookingId}/reject`, {method: 'POST'})
+        .then(() => location.reload());
+}
+</script>
+{% endblock %}

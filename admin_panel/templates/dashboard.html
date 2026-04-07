@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block page_title %}Панель управления{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3 mb-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">Всего клиентов</h5>
+                <h2>{{ total_clients }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Активные сопровождения</h5>
+                <h2>{{ active_support }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <h5 class="card-title">Доход за месяц</h5>
+                <h2>{{ monthly_revenue }} ₽</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-white bg-danger">
+            <div class="card-body">
+                <h5 class="card-title">Ожидают подтверждения</h5>
+                <h2>{{ pending_payments }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Отчёты{% endblock %}
+{% block page_title %}Аналитика и отчёты{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4>Экспорт данных</h4>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary mb-2" onclick="exportReport('revenue')">
+                    <i class="bi bi-file-earmark-excel"></i> Экспорт доходов (Excel)
+                </button>
+                <button class="btn btn-success" onclick="exportReport('consultations')">
+                    <i class="bi bi-file-earmark-excel"></i> Экспорт консультаций (Excel)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function exportReport(type) {
+    window.location.href = `/admin/reports/export/excel?report_type=${type}`;
+}
+</script>
+{% endblock %}

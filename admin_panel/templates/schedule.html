@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Расписание{% endblock %}
+{% block page_title %}Управление расписанием{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h4>Загрузка расписания на неделю</h4>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label>Неделя: {{ start_date.strftime('%d.%m.%Y') }} - {{ end_date.strftime('%d.%m.%Y') }}</label>
+            <input type="week" id="weekPicker" class="form-control w-auto" value="{{ start_date.strftime('%Y-W%W') }}" onchange="changeWeek()">
+        </div>
+        
+        <textarea id="slotsInput" class="form-control mb-2" rows="5" placeholder='Формат JSON: ["2024-01-15 10:00", "2024-01-15 11:00"]'></textarea>
+        <button class="btn btn-primary" onclick="uploadSlots()">Загрузить слоты</button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h4>Существующие слоты</h4>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for slot in slots %}
+            <div class="col-md-3 mb-2">
+                <div class="card {% if slot.is_booked %}bg-secondary{% else %}bg-success{% endif %} text-white">
+                    <div class="card-body p-2">
+                        <small>{{ slot.slot_datetime.strftime('%d.%m.%Y %H:%M') }}</small>
+                        {% if not slot.is_booked %}
+                        <button class="btn btn-sm btn-danger float-end" onclick="deleteSlot({{ slot.id }})">×</button>
+                        {% else %}
+                        <span class="badge bg-dark float-end">Занят</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+function changeWeek() {
+    const weekValue = document.getElementById('weekPicker').value;
+    window.location.href = `/admin/schedule?week_start=${weekValue}`;
+}
+
+function uploadSlots() {
+    const slotsData = document.getElementById('slotsInput').value;
+    fetch('/admin/slots/upload', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `slots_data=${encodeURIComponent(slotsData)}`
+    }).then(() => location.reload());
+}
+
+function deleteSlot(slotId) {
+    fetch(`/admin/slot/${slotId}`, {method: 'DELETE'})
+        .then(() => location.reload());
+}
+</script>
+{% endblock %}

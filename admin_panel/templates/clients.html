@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Клиенты{% endblock %}
+{% block page_title %}Список клиентов{% endblock %}
+
+{% block content %}
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Имя</th>
+            <th>Telegram ID</th>
+            <th>Телефон</th>
+            <th>Дата регистрации</th>
+            <th>Количество записей</th>
+            <th>Активное сопровождение до</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for client in clients %}
+        <tr>
+            <td>{{ client.id }}</td>
+            <td>{{ client.name }}</td>
+            <td>{{ client.telegram_id }}</td>
+            <td>{{ client.phone or '-' }}</td>
+            <td>{{ client.created_at.strftime('%d.%m.%Y') }}</td>
+            <td>{{ client.bookings_count }}</td>
+            <td>{{ client.support_end_date.strftime('%d.%m.%Y') if client.support_end_date else '-' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

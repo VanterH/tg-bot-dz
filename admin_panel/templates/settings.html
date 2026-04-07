@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки{% endblock %}
+{% block page_title %}Управление услугами{% endblock %}
+
+{% block content %}
+<div class="row">
+    {% for service in services %}
+    <div class="col-md-6 mb-3">
+        <div class="card">
+            <div class="card-header">
+                <h4>{{ service.name }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label>Название</label>
+                    <input type="text" id="name_{{ service.id }}" class="form-control" value="{{ service.name }}">
+                </div>
+                <div class="mb-2">
+                    <label>Цена (RUB)</label>
+                    <input type="number" id="price_rub_{{ service.id }}" class="form-control" value="{{ service.price_rub }}">
+                </div>
+                <div class="mb-2">
+                    <label>Цена (USD)</label>
+                    <input type="number" id="price_usd_{{ service.id }}" class="form-control" value="{{ service.price_usd }}">
+                </div>
+                <div class="mb-2">
+                    <label>Дней сопровождения</label>
+                    <input type="number" id="support_days_{{ service.id }}" class="form-control" value="{{ service.support_days }}">
+                </div>
+                <div class="mb-2">
+                    <label>
+                        <input type="checkbox" id="is_active_{{ service.id }}" {% if service.is_active %}checked{% endif %}>
+                        Активна
+                    </label>
+                </div>
+                <button class="btn btn-primary" onclick="updateService({{ service.id }})">Сохранить</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+function updateService(serviceId) {
+    const data = {
+        name: document.getElementById(`name_${serviceId}`).value,
+        price_rub: parseInt(document.getElementById(`price_rub_${serviceId}`).value),
+        price_usd: parseInt(document.getElementById(`price_usd_${serviceId}`).value),
+        support_days: parseInt(document.getElementById(`support_days_${serviceId}`).value),
+        is_active: document.getElementById(`is_active_${serviceId}`).checked
+    };
+
+    fetch(`/admin/settings/service/${serviceId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(() => alert('Сохранено!'));
+}
+</script>
+{% endblock %}
