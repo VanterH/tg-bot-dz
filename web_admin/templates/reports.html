@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Отчёты{% endblock %}
+
+{% block content %}
+<h1>📊 Аналитика и отчёты</h1>
+
+<div class="grid-3">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_consultations }}</div>
+        <div class="stat-label">Всего консультаций</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ conversion_rate }}%</div>
+        <div class="stat-label">Конверсия в оплату</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Экспорт данных</h3>
+    <a href="/export/excel" class="btn btn-success">📥 Скачать Excel отчёт</a>
+    <a href="/export/csv" class="btn btn-primary">📥 Скачать CSV отчёт</a>
+</div>
+
+<div class="card">
+    <h3>Доход по месяцам</h3>
+    <canvas id="incomeChart" width="400" height="200"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('incomeChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ months|safe }},
+            datasets: [{
+                label: 'Доход (₽)',
+                data: {{ incomes|safe }},
+                borderColor: '#3498db',
+                tension: 0.1
+            }]
+        }
+    });
+</script>
+{% endblock %}

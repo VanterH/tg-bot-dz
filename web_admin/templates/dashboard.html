@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд{% endblock %}
+
+{% block content %}
+<h1>📈 Дашборд</h1>
+
+<div class="grid-3">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_clients }}</div>
+        <div class="stat-label">Всего клиентов</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ active_support }}</div>
+        <div class="stat-label">Активных сопровождений</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ month_income }}₽</div>
+        <div class="stat-label">Доход за месяц</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Последние заявки</h3>
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Клиент</th><th>Услуга</th><th>Статус</th><th>Дата</th></tr>
+        </thead>
+        <tbody>
+            {% for booking in bookings[:5] %}
+            <tr>
+                <td>{{ booking.id }}</td>
+                <td>{{ booking.user.name if booking.user else '-' }}</td>
+                <td>{{ booking.service.name if booking.service else '-' }}</td>
+                <td><span class="status status-{{ booking.payment_status }}">{{ booking.payment_status }}</span></td>
+                <td>{{ booking.created_at.strftime('%d.%m.%Y') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+services:
+  # Убираем сервис db - используем локальную БД
+  
+  bot:
+    build: .
+    command: python -m bot.main
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/booking_bot
+    volumes:
+      - ./:/app
+      - uploads:/app/uploads
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Для доступа к localhost из контейнера
+
+  web:
+    build: .
+    command: uvicorn web_admin.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/booking_bot
+      - SECRET_KEY=${SECRET_KEY:-admin123}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  uploads:

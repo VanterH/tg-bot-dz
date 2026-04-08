@@ -1,0 +1,28 @@
+name: Deploy to VDS
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh/
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.VDS_HOST }} >> ~/.ssh/known_hosts
+    
+    - name: Deploy
+      run: |
+        ssh ${{ secrets.VDS_USER }}@${{ secrets.VDS_HOST }} '
+          cd /app/telegram-booking-bot
+          git pull
+          docker-compose down
+          docker-compose up -d --build
+          docker system prune -f
+        '

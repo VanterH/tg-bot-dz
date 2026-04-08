@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки{% endblock %}
+
+{% block content %}
+<h1>📋 Управление заявками</h1>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Клиент</th><th>Услуга</th><th>Сумма</th><th>Статус</th><th>Чек</th><th>Действие</th></tr>
+        </thead>
+        <tbody>
+            {% for booking in bookings %}
+            <tr>
+                <td>{{ booking.id }}</td>
+                <td>{{ booking.user.name if booking.user else '-' }}</td>
+                <td>{{ booking.service.name if booking.service else '-' }}</td>
+                <td>{{ booking.service.price_rub if booking.service else '-' }}₽</td>
+                <td>
+                    <span class="status status-{{ booking.payment_status }}">
+                        {{ booking.payment_status }}
+                    </span>
+                </td>
+                <td>
+                    {% if booking.payment_proof_url %}
+                    <a href="/{{ booking.payment_proof_url }}" target="_blank">Просмотр</a>
+                    {% else %}
+                    Нет
+                    {% endif %}
+                </td>
+                <td>
+                    {% if booking.payment_status == 'waiting_confirm' %}
+                    <form method="post" action="/confirm_booking/{{ booking.id }}" style="display:inline">
+                        <button type="submit" class="btn btn-success">✅ Подтвердить</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

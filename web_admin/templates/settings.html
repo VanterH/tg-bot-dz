@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<h1>⚙️ Настройки системы</h1>
+
+<div class="card">
+    <h3>Управление услугами</h3>
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Название</th><th>Цена (RUB)</th><th>Цена (USD)</th><th>Дней сопровождения</th><th>Статус</th><th>Действие</th></tr>
+        </thead>
+        <tbody>
+            {% for service in services %}
+            <tr>
+                <td>{{ service.id }}</td>
+                <td>{{ service.name }}</td>
+                <td>{{ service.price_rub }}₽</td>
+                <td>${{ service.price_usd }}</td>
+                <td>{{ service.support_days }}</td>
+                <td>{% if service.is_active %}✅ Активна{% else %}❌ Неактивна{% endif %}</td>
+                <td>
+                    <form method="post" action="/update_service/{{ service.id }}" style="display:inline">
+                        <input type="number" name="price_rub" value="{{ service.price_rub }}" style="width:80px">
+                        <button type="submit" class="btn btn-primary">Обновить</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>Реквизиты для оплаты</h3>
+    <form method="post" action="/update_payment_details">
+        <textarea name="payment_details" rows="5" cols="50">{{ payment_details }}</textarea>
+        <br><br>
+        <button type="submit" class="btn btn-primary">Сохранить реквизиты</button>
+    </form>
+</div>
+{% endblock %}

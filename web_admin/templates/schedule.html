@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Расписание{% endblock %}
+
+{% block content %}
+<h1>📅 Управление расписанием</h1>
+
+<div class="card">
+    <h3>Загрузить расписание на неделю</h3>
+    <form method="post" action="/add_slots">
+        <textarea name="week_slots" rows="5" cols="50" placeholder="Введите слоты в формате:
+2024-01-15 10:00
+2024-01-15 14:00
+2024-01-16 11:00"></textarea>
+        <br><br>
+        <button type="submit" class="btn btn-primary">📤 Загрузить слоты</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Текущие слоты</h3>
+    <table>
+        <thead>
+            <tr><th>Дата и время</th><th>Статус</th><th>Клиент</th></tr>
+        </thead>
+        <tbody>
+            {% for slot in slots %}
+            <tr>
+                <td>{{ slot.slot_datetime }}</td>
+                <td>{% if slot.is_booked %}📅 Занят{% else %}✅ Свободен{% endif %}</td>
+                <td>
+                    {% if slot.booking_id %}
+                    {{ slot.booking.user.name if slot.booking and slot.booking.user else '-' }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
