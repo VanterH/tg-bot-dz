@@ -1,31 +1,54 @@
+# docker-compose.yml (обновить для поддержки полнотекстового поиска)
+version: '3.8'
+
 services:
-  # Убираем сервис db - используем локальную БД
-  
+  db:
+    image: postgres:15
+    container_name: doterra_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: doterra_bot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # Добавить для русской локали
+    command: >
+      postgres -c 'shared_preload_libraries=pg_trgm'
+    
   bot:
     build: .
+    container_name: doterra_bot
     command: python -m bot.main
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
-      - DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/booking_bot
+      - EXPERT_TELEGRAM_IDS=${EXPERT_TELEGRAM_IDS}
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/doterra_bot
+      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY}
+      - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
+      - GIGACHAT_MODEL=${GIGACHAT_MODEL}
+    depends_on:
+      - db
     volumes:
       - ./:/app
       - uploads:/app/uploads
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  # Для доступа к localhost из контейнера
 
   web:
     build: .
+    container_name: doterra_web
     command: uvicorn web_admin.main:app --host 0.0.0.0 --port 8000
     environment:
-      - DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/booking_bot
-      - SECRET_KEY=${SECRET_KEY:-admin123}
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/doterra_bot
+      - SECRET_KEY=${SECRET_KEY}
     ports:
       - "8000:8000"
+    depends_on:
+      - db
     volumes:
       - ./:/app
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 volumes:
+  postgres_data:
   uploads:

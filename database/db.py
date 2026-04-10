@@ -1,11 +1,15 @@
+# database/db.py
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database.models import Base, User, Service
+from database.models import Base
+from dotenv import load_dotenv
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:toor@localhost:5432/booking_bot')
+load_dotenv()
 
-# Для SQLite
+# Используем новую базу данных
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/doterra_bot')
+
 if 'sqlite' in DATABASE_URL:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
@@ -13,50 +17,60 @@ else:
 
 SessionLocal = sessionmaker(bind=engine)
 
-def init_db():
-    """Инициализация базы данных"""
-    Base.metadata.create_all(bind=engine)
-    
-    session = SessionLocal()
-    try:
-        # Создаем админа если нет
-        admin_id = os.getenv('ADMIN_TELEGRAM_ID')
-        if admin_id:
-            admin = session.query(User).filter_by(telegram_id=int(admin_id)).first()
-            if not admin:
-                admin = User(
-                    telegram_id=int(admin_id),
-                    name='Admin',
-                    role='admin'
-                )
-                session.add(admin)
-                session.commit()
-                print(f"✅ Админ создан с ID: {admin_id}")
-        
-        # Создаем услуги если нет
-        if session.query(Service).count() == 0:
-            services = [
-                Service(name='Премиум', price_rub=15000, price_usd=200, support_days=30, is_active=True),
-                Service(name='Стандарт', price_rub=10000, price_usd=130, support_days=30, is_active=True),
-                Service(name='Базовый', price_rub=5000, price_usd=70, support_days=0, is_active=True)
-            ]
-            for service in services:
-                session.add(service)
-            session.commit()
-            print("✅ Услуги созданы")
-        
-        print("✅ База данных успешно инициализирована")
-    except Exception as e:
-        print(f"❌ Ошибка при инициализации БД: {e}")
-        session.rollback()
-    finally:
-        session.close()
-        
-        
 def get_db():
-    """Генератор сессии базы данных для FastAPI"""
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+def init_db():
+    """Инициализация базы данных"""
+    Base.metadata.create_all(bind=engine)
+    print("✅ Таблицы созданы в базе данных doterra_bot")
+    
+    db = SessionLocal()
+    try:
+        from database.models import SystemSettings, ProductDictionary
+        
+        # Добавляем системные настройки
+        settings = [
+            {"key": "rag_top_k", "value": "5", "description": "Количество чанков для RAG"},
+            {"key": "rag_confidence_threshold", "value": "0.6", "description": "Порог уверенности RAG"},
+            {"key": "max_expert_iterations", "value": "2", "description": "Максимум итераций эксперта"},
+        ]
+        
+        for setting in settings:
+            existing = db.query(SystemSettings).filter_by(key=setting["key"]).first()
+            if not existing:
+                db.add(SystemSettings(**setting))
+        
+        # Добавляем продукты doTERRA
+        products = [
+            {"name_en": "Lavender", "name_ru": "Лаванда", "category": "успокаивающие"},
+            {"name_en": "On Guard", "name_ru": "Он Гард", "category": "иммунитет"},
+            {"name_en": "Peppermint", "name_ru": "Перечная мята", "category": "энергия"},
+            {"name_en": "Tea Tree", "name_ru": "Чайное дерево", "category": "кожа"},
+            {"name_en": "Lemon", "name_ru": "Лимон", "category": "детокс"},
+            {"name_en": "Frankincense", "name_ru": "Ладан", "category": "клеточное здоровье"},
+            {"name_en": "Oregano", "name_ru": "Орегано", "category": "иммунитет"},
+            {"name_en": "Deep Blue", "name_ru": "Дип Блю", "category": "мышцы и суставы"},
+            {"name_en": "Breathe", "name_ru": "Бриз", "category": "дыхание"},
+            {"name_en": "DigestZen", "name_ru": "ДижестЗен", "category": "пищеварение"},
+            {"name_en": "Serenity", "name_ru": "Серенити", "category": "сон"},
+            {"name_en": "Wild Orange", "name_ru": "Дикий апельсин", "category": "настроение"},
+        ]
+        
+        for product in products:
+            existing = db.query(ProductDictionary).filter_by(name_en=product["name_en"]).first()
+            if not existing:
+                db.add(ProductDictionary(**product))
+        
+        db.commit()
+        print("✅ Начальные данные добавлены (услуги, настройки)")
+        
+    except Exception as e:
+        print(f"⚠️ Ошибка добавления начальных данных: {e}")
+        db.rollback()
     finally:
         db.close()

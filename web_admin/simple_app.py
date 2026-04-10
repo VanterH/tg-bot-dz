@@ -1,27 +1,23 @@
+# web_admin/simple_app.py
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Request, Form, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import uvicorn
-from aiogram import Bot
+import json
+
 from database.db import SessionLocal, get_db
-from database.models import User, Booking, Service, ScheduleSlot
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
+from database.models import User, Service, Booking, ScheduleSlot, Question, PaymentRequest, ArchiveEntry, ExpertLog
 
 app = FastAPI()
 ADMIN_PASSWORD = "admin123"
 
-# Базовый HTML шаблон со стилями
+# Базовый HTML шаблон
 BASE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -30,112 +26,134 @@ BASE_HTML = """
     <title>{title}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: Arial, sans-serif; background: #f5f5f5; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background: #f5f5f5; }}
         .sidebar {{
-            width: 250px;
+            width: 260px;
             background: #2c3e50;
             color: white;
             position: fixed;
             height: 100%;
             padding: 20px;
-            top: 0;
-            left: 0;
+            overflow-y: auto;
         }}
-        .sidebar h2 {{ margin-bottom: 30px; font-size: 20px; }}
+        .sidebar h2 {{ margin-bottom: 30px; font-size: 20px; text-align: center; }}
         .sidebar a {{
             color: white;
             text-decoration: none;
             display: block;
-            padding: 10px;
+            padding: 12px;
             margin: 5px 0;
-            border-radius: 5px;
-            transition: background 0.3s;
+            border-radius: 8px;
+            transition: all 0.3s;
         }}
         .sidebar a:hover {{ background: #34495e; }}
+        .sidebar .section-title {{
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #95a5a6;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }}
         .content {{
-            margin-left: 250px;
+            margin-left: 260px;
             padding: 30px;
         }}
         .card {{
             background: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }}
         .stats {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }}
         .stat-card {{
             background: white;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }}
         .stat-number {{
-            font-size: 36px;
+            font-size: 32px;
             font-weight: bold;
             color: #3498db;
         }}
         .stat-label {{ color: #7f8c8d; margin-top: 10px; }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-        }}
-        th, td {{
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }}
-        th {{
-            background: #f8f9fa;
-            font-weight: bold;
-        }}
-        tr:hover {{ background: #f5f5f5; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }}
+        th {{ background: #f8f9fa; font-weight: 600; }}
+        tr:hover {{ background: #f8f9fa; }}
         .btn {{
-            padding: 8px 15px;
+            padding: 6px 12px;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 12px;
+            margin: 2px;
             text-decoration: none;
             display: inline-block;
-            margin: 2px;
+            transition: all 0.2s;
         }}
         .btn-success {{ background: #27ae60; color: white; }}
+        .btn-success:hover {{ background: #219a52; }}
         .btn-danger {{ background: #e74c3c; color: white; }}
+        .btn-danger:hover {{ background: #c0392b; }}
         .btn-primary {{ background: #3498db; color: white; }}
+        .btn-primary:hover {{ background: #2980b9; }}
         .btn-warning {{ background: #f39c12; color: white; }}
+        .btn-warning:hover {{ background: #e67e22; }}
         .status {{
             padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
+            border-radius: 20px;
+            font-size: 11px;
             font-weight: bold;
+            display: inline-block;
         }}
-        .status-paid {{ background: #27ae60; color: white; }}
-        .status-waiting_confirm {{ background: #f39c12; color: white; }}
-        .status-pending {{ background: #95a5a6; color: white; }}
+        .status-paid, .status-answered {{ background: #27ae60; color: white; }}
+        .status-waiting_confirm, .status-expert_review {{ background: #f39c12; color: white; }}
+        .status-pending, .status-received {{ background: #95a5a6; color: white; }}
         .status-rejected {{ background: #e74c3c; color: white; }}
-        h1 {{ margin-bottom: 20px; color: #333; }}
-        .form-group {{ margin-bottom: 15px; }}
-        .form-group label {{ display: block; margin-bottom: 5px; font-weight: bold; }}
-        .form-group input, .form-group select {{ padding: 8px; width: 100%; max-width: 300px; }}
-        .slot-free {{ color: green; }}
-        .slot-booked {{ color: red; }}
+        h1 {{ margin-bottom: 24px; color: #2c3e50; font-size: 28px; }}
+        .filter-bar {{ margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }}
+        input, select, textarea {{ padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }}
+        .form-group {{ margin-bottom: 20px; }}
+        .form-group label {{ display: block; margin-bottom: 8px; font-weight: 600; }}
+        .form-group input, .form-group select, .form-group textarea {{ padding: 10px; width: 100%; max-width: 400px; border: 1px solid #ddd; border-radius: 6px; }}
+        pre {{
+            white-space: pre-wrap;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }}
+        .message-success {{ background: #d4edda; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
+        .message-error {{ background: #f8d7da; color: #721c24; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h2>📊 Admin Panel</h2>
+        <h2>🌿 doTERRA Admin</h2>
+        <div class="section-title">ОСНОВНОЕ</div>
         <a href="/">📈 Дашборд</a>
-        <a href="/bookings">📋 Заявки</a>
+        <div class="section-title">КОНСУЛЬТАЦИИ</div>
+        <a href="/bookings">📋 Заявки на консультацию</a>
         <a href="/schedule">📅 Расписание</a>
-        <a href="/clients">👥 Клиенты</a>
-        <a href="/reports">📊 Отчёты</a>
+        <a href="/services">💰 Услуги</a>
+        <div class="section-title">ВОПРОСЫ ЭКСПЕРТУ</div>
+        <a href="/questions">❓ Вопросы</a>
+        <a href="/payments">💳 Оплаты вопросов</a>
+        <a href="/archive">📋 Архив ответов</a>
+        <div class="section-title">ПОЛЬЗОВАТЕЛИ</div>
+        <a href="/users">👥 Пользователи</a>
+        <div class="section-title">СИСТЕМА</div>
         <a href="/settings">⚙️ Настройки</a>
         <a href="/logout">🚪 Выход</a>
     </div>
@@ -154,7 +172,7 @@ LOGIN_HTML = """
     <title>Вход в админ-панель</title>
     <style>
         body {{
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             height: 100vh;
             display: flex;
@@ -165,13 +183,13 @@ LOGIN_HTML = """
         .login-box {{
             background: white;
             padding: 40px;
-            border-radius: 10px;
-            width: 350px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            border-radius: 16px;
+            width: 380px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
         }}
         h2 {{ text-align: center; margin-bottom: 30px; color: #333; }}
-        input {{ width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }}
-        button {{ width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; }}
+        input {{ width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }}
+        button {{ width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; transition: background 0.3s; }}
         button:hover {{ background: #5a67d8; }}
         .error {{ color: red; text-align: center; margin-top: 10px; }}
     </style>
@@ -196,74 +214,6 @@ def verify_token(request: Request):
     token = request.cookies.get("admin_token")
     return token == ADMIN_PASSWORD
 
-# ============ ПРОСМОТР ФОТО ЧЕКА ============
-@app.get("/receipt/{booking_id}")
-async def view_receipt(booking_id: int, request: Request, db: Session = Depends(get_db)):
-    if not verify_token(request):
-        return RedirectResponse("/login", status_code=303)
-    
-    booking = db.query(Booking).get(booking_id)
-    if not booking or not booking.payment_proof_url:
-        return HTMLResponse("<h3>❌ Фото чека не найдено</h3>", status_code=404)
-    
-    if os.path.exists(booking.payment_proof_url):
-        return FileResponse(booking.payment_proof_url, media_type="image/jpeg")
-    return HTMLResponse("<h3>❌ Файл не найден</h3>", status_code=404)
-
-# ============ ДАШБОРД ============
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request, db: Session = Depends(get_db)):
-    if not verify_token(request):
-        return RedirectResponse("/login", status_code=303)
-    
-    total_clients = db.query(User).filter_by(role='client').count()
-    active_support = db.query(Booking).filter(
-        Booking.support_end_date > datetime.now(),
-        Booking.payment_status == 'paid'
-    ).count()
-    
-    month_income = db.query(Booking).filter(
-        Booking.payment_status == 'paid',
-        Booking.confirmed_at > datetime.now() - timedelta(days=30)
-    ).all()
-    total_income = 0
-    for b in month_income:
-        service = db.query(Service).get(b.service_id)
-        if service:
-            total_income += service.price_rub
-    
-    recent_bookings = db.query(Booking).order_by(Booking.created_at.desc()).limit(5).all()
-    bookings_html = ""
-    for b in recent_bookings:
-        user = db.query(User).get(b.user_id)
-        service = db.query(Service).get(b.service_id)
-        bookings_html += f"""
-        <tr>
-            <td>{b.id}</td>
-            <td>{user.name if user else '-'}</td>
-            <td>{service.name if service else '-'}</td>
-            <td><span class="status status-{b.payment_status}">{b.payment_status}</span></td>
-            <td>{b.created_at.strftime('%d.%m.%Y %H:%M') if b.created_at else '-'}</td>
-        </tr>
-        """
-    
-    if not recent_bookings:
-        bookings_html = '<tr><td colspan="5" style="text-align: center; color: #999;">Нет заявок</td></tr>'
-    
-    content = f"""
-    <h1>📈 Дашборд</h1>
-    <div class="stats">
-        <div class="stat-card"><div class="stat-number">{total_clients}</div><div class="stat-label">Всего клиентов</div></div>
-        <div class="stat-card"><div class="stat-number">{active_support}</div><div class="stat-label">Активных сопровождений</div></div>
-        <div class="stat-card"><div class="stat-number">{total_income}₽</div><div class="stat-label">Доход за месяц</div></div>
-    </div>
-    <div class="card">
-        <h3>Последние заявки</h3>
-        <table><thead><tr><th>ID</th><th>Клиент</th><th>Услуга</th><th>Статус</th><th>Дата</th></tr></thead>
-        <tbody>{bookings_html}</tbody></table>
-    </div>
-    """
-    return render_page("Дашборд", content)
 
 # ============ ЛОГИН ============
 @app.get("/login", response_class=HTMLResponse)
@@ -278,13 +228,50 @@ async def login(request: Request, password: str = Form(...)):
         return response
     return LOGIN_HTML.format(error='<div class="error">❌ Неверный пароль!</div>')
 
-# ============ ЗАЯВКИ ============
+
+# ============ ДАШБОРД ============
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    # Статистика
+    total_users = db.query(User).count()
+    total_bookings = db.query(Booking).count()
+    pending_bookings = db.query(Booking).filter_by(payment_status='waiting_confirm').count()
+    total_slots = db.query(ScheduleSlot).count()
+    
+    total_questions = db.query(Question).count()
+    pending_questions = db.query(Question).filter_by(status='expert_review').count()
+    total_payments = db.query(PaymentRequest).filter_by(status='confirmed').count()
+    
+    confirmed_bookings = db.query(Booking).filter_by(payment_status='paid').all()
+    bookings_revenue = sum(b.service.price_rub if b.service else 0 for b in confirmed_bookings)
+    
+    content = f"""
+    <h1>📈 Дашборд</h1>
+    <div class="stats">
+        <div class="stat-card"><div class="stat-number">{total_users}</div><div class="stat-label">Пользователей</div></div>
+        <div class="stat-card"><div class="stat-number">{total_bookings}</div><div class="stat-label">Всего записей</div></div>
+        <div class="stat-card"><div class="stat-number">{pending_bookings}</div><div class="stat-label">Ожидают оплаты</div></div>
+        <div class="stat-card"><div class="stat-number">{total_slots}</div><div class="stat-label">Слотов расписания</div></div>
+        <div class="stat-card"><div class="stat-number">{total_questions}</div><div class="stat-label">Всего вопросов</div></div>
+        <div class="stat-card"><div class="stat-number">{pending_questions}</div><div class="stat-label">Вопросов в обработке</div></div>
+        <div class="stat-card"><div class="stat-number">{total_payments}</div><div class="stat-label">Оплат вопросов</div></div>
+        <div class="stat-card"><div class="stat-number">{bookings_revenue}₽</div><div class="stat-label">Доход с консультаций</div></div>
+    </div>
+    """
+    return render_page("Дашборд", content)
+
+
+# ============ ЗАЯВКИ НА КОНСУЛЬТАЦИЮ ============
 @app.get("/bookings", response_class=HTMLResponse)
 async def bookings_page(request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
     
     bookings = db.query(Booking).order_by(Booking.created_at.desc()).all()
+    
     table_html = ""
     for b in bookings:
         user = db.query(User).get(b.user_id)
@@ -292,26 +279,26 @@ async def bookings_page(request: Request, db: Session = Depends(get_db)):
         
         receipt_link = ""
         if b.payment_proof_url and os.path.exists(b.payment_proof_url):
-            receipt_link = f'<a href="/receipt/{b.id}" target="_blank" class="btn btn-primary">📷 Чек</a>'
+            receipt_link = f'<a href="/uploads/{os.path.basename(b.payment_proof_url)}" target="_blank" class="btn btn-primary">📷 Чек</a>'
         else:
-            receipt_link = '<span style="color: #999;">Нет чека</span>'
+            receipt_link = '<span class="status status-pending">Нет чека</span>'
         
         if b.payment_status == 'waiting_confirm':
             action_buttons = f'''
-                <form method="post" action="/confirm/{b.id}" style="display:inline">
+                <form method="post" action="/confirm_booking/{b.id}" style="display:inline">
                     <button type="submit" class="btn btn-success">✅ Подтвердить</button>
                 </form>
-                <form method="post" action="/reject/{b.id}" style="display:inline">
+                <form method="post" action="/reject_booking/{b.id}" style="display:inline">
                     <button type="submit" class="btn btn-danger">❌ Отклонить</button>
                 </form>
             '''
         else:
-            action_buttons = '<span style="color: #999;">Нет действий</span>'
+            action_buttons = '<span class="status status-pending">-</span>'
         
         table_html += f"""
         <tr>
             <td>{b.id}</td>
-            <td>{user.name if user else '-'}</td>
+            <td>{user.first_name or user.username if user else '-'}</td>
             <td>{service.name if service else '-'}</td>
             <td>{service.price_rub if service else 0}₽</td>
             <td><span class="status status-{b.payment_status}">{b.payment_status}</span></td>
@@ -322,11 +309,16 @@ async def bookings_page(request: Request, db: Session = Depends(get_db)):
         """
     
     if not bookings:
-        table_html = '<tr><td colspan="8" style="text-align: center;">Нет заявок</td></tr>'
+        table_html = '<tr><td colspan="8" style="text-align: center; color: #999;">Нет заявок</td></tr>'
     
     content = f"""
-    <h1>📋 Управление заявками</h1>
+    <h1>📋 Заявки на консультацию</h1>
     <div class="card">
+        <div class="filter-bar">
+            <input type="text" placeholder="Поиск...">
+            <select><option>Все статусы</option></select>
+            <button class="btn btn-primary">Поиск</button>
+        </div>
         <table>
             <thead><tr><th>ID</th><th>Клиент</th><th>Услуга</th><th>Сумма</th><th>Статус</th><th>Дата</th><th>Чек</th><th>Действие</th></tr></thead>
             <tbody>{table_html}</tbody>
@@ -335,7 +327,8 @@ async def bookings_page(request: Request, db: Session = Depends(get_db)):
     """
     return render_page("Заявки", content)
 
-@app.post("/confirm/{booking_id}")
+
+@app.post("/confirm_booking/{booking_id}")
 async def confirm_booking(booking_id: int, request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
@@ -346,30 +339,34 @@ async def confirm_booking(booking_id: int, request: Request, db: Session = Depen
         booking.confirmed_at = datetime.now()
         db.commit()
         
+        # Отправляем уведомление пользователю
         user = db.query(User).get(booking.user_id)
-        service = db.query(Service).get(booking.service_id)
-        
-        if bot and user and user.telegram_id:
+        if user and user.telegram_id:
             try:
+                from aiogram import Bot
                 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📅 Выбрать время", callback_data="choose_slot")]
-                ])
-                await bot.send_message(
-                    user.telegram_id,
-                    f"✅ <b>Оплата подтверждена!</b>\n\n"
-                    f"📋 Услуга: {service.name if service else '-'}\n"
-                    f"💰 Сумма: {service.price_rub if service else 0}₽\n\n"
-                    f"Теперь вы можете выбрать время для консультации.",
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+                
+                bot_token = os.getenv('BOT_TOKEN')
+                bot = Bot(token=bot_token) if bot_token else None
+                
+                if bot:
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📅 Выбрать время", callback_data="choose_slot")]
+                    ])
+                    await bot.send_message(
+                        user.telegram_id,
+                        f"✅ <b>Оплата подтверждена!</b>\n\nТеперь выберите время для консультации.",
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                    await bot.session.close()
             except Exception as e:
                 print(f"Ошибка: {e}")
     
     return RedirectResponse("/bookings", status_code=303)
 
-@app.post("/reject/{booking_id}")
+
+@app.post("/reject_booking/{booking_id}")
 async def reject_booking(booking_id: int, request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
@@ -380,15 +377,21 @@ async def reject_booking(booking_id: int, request: Request, db: Session = Depend
         db.commit()
         
         user = db.query(User).get(booking.user_id)
-        if bot and user and user.telegram_id:
+        if user and user.telegram_id:
             try:
-                await bot.send_message(user.telegram_id, f"❌ Ваша оплата отклонена.")
-            except Exception as e:
-                print(f"Ошибка: {e}")
+                from aiogram import Bot
+                bot_token = os.getenv('BOT_TOKEN')
+                bot = Bot(token=bot_token) if bot_token else None
+                if bot:
+                    await bot.send_message(user.telegram_id, "❌ Ваша оплата отклонена. Свяжитесь с администратором.")
+                    await bot.session.close()
+            except:
+                pass
     
     return RedirectResponse("/bookings", status_code=303)
 
-# ============ УПРАВЛЕНИЕ РАСПИСАНИЕМ ============
+
+# ============ РАСПИСАНИЕ ============
 @app.get("/schedule", response_class=HTMLResponse)
 async def schedule_page(request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
@@ -398,26 +401,22 @@ async def schedule_page(request: Request, db: Session = Depends(get_db)):
     
     slots_html = ""
     for slot in slots:
-        client_name = '-'
+        client_name = "-"
         if slot.is_booked and slot.booking_id:
             booking = db.query(Booking).get(slot.booking_id)
             if booking:
                 user = db.query(User).get(booking.user_id)
                 if user:
-                    client_name = user.name
-        
-        status_class = "slot-free" if not slot.is_booked else "slot-booked"
-        status_text = "🟢 Свободен" if not slot.is_booked else "🔴 Занят"
+                    client_name = user.first_name or user.username
         
         slots_html += f"""
         <tr>
             <td>{slot.id}</td>
             <td>{slot.slot_datetime.strftime('%d.%m.%Y %H:%M') if slot.slot_datetime else '-'}</td>
-            <td class="{status_class}">{status_text}</td>
+            <td>{"🔴 Занят" if slot.is_booked else "🟢 Свободен"}</td>
             <td>{client_name}</td>
             <td>
-                <form method="post" action="/delete_slot/{slot.id}" style="display:inline" 
-                      onsubmit="return confirm('Удалить слот?')">
+                <form method="post" action="/delete_slot/{slot.id}" style="display:inline" onsubmit="return confirm('Удалить слот?')">
                     <button type="submit" class="btn btn-danger">🗑️ Удалить</button>
                 </form>
             </td>
@@ -425,81 +424,28 @@ async def schedule_page(request: Request, db: Session = Depends(get_db)):
         """
     
     if not slots:
-        slots_html = '<tr><td colspan="5" style="text-align: center;">Нет слотов</td></tr>'
+        slots_html = '<tr><td colspan="5" style="text-align: center; color: #999;">Нет слотов</td></tr>'
     
     content = f"""
     <h1>📅 Управление расписанием</h1>
-    
     <div class="card">
-        <h3>➕ Добавить новый слот</h3>
+        <h3>➕ Добавить слот</h3>
         <form method="post" action="/add_slot">
-            <div class="form-group">
-                <label>Дата:</label>
-                <input type="date" name="date" required>
-            </div>
-            <div class="form-group">
-                <label>Время начала:</label>
-                <input type="time" name="time" required>
-            </div>
-            <div class="form-group">
-                <label>Длительность (минуты):</label>
-                <select name="duration">
-                    <option value="30">30 минут</option>
-                    <option value="60">1 час</option>
-                    <option value="90">1.5 часа</option>
-                    <option value="120">2 часа</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary">➕ Добавить слот</button>
+            <div class="form-group"><label>Дата:</label><input type="date" name="date" required></div>
+            <div class="form-group"><label>Время:</label><input type="time" name="time" required></div>
+            <button type="submit" class="btn btn-primary">➕ Добавить</button>
         </form>
     </div>
-    
-    <div class="card">
-        <h3>📅 Создать слоты на неделю</h3>
-        <form method="post" action="/add_week_slots">
-            <div class="form-group">
-                <label>Начальная дата:</label>
-                <input type="date" name="start_date" required>
-            </div>
-            <div class="form-group">
-                <label>Время начала (по умолчанию 10:00):</label>
-                <input type="time" name="start_time" value="10:00">
-            </div>
-            <div class="form-group">
-                <label>Время окончания (по умолчанию 18:00):</label>
-                <input type="time" name="end_time" value="18:00">
-            </div>
-            <div class="form-group">
-                <label>Интервал (минуты):</label>
-                <select name="interval">
-                    <option value="60">Каждый час</option>
-                    <option value="120">Каждые 2 часа</option>
-                    <option value="30">Каждые 30 минут</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Длительность слота (минуты):</label>
-                <select name="duration">
-                    <option value="60">1 час</option>
-                    <option value="30">30 минут</option>
-                    <option value="90">1.5 часа</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-success">📅 Создать слоты на неделю</button>
-        </form>
-    </div>
-    
     <div class="card">
         <h3>📋 Текущие слоты</h3>
         <table>
-            <thead>
-                <tr><th>ID</th><th>Дата и время</th><th>Статус</th><th>Клиент</th><th>Действие</th></tr>
-            </thead>
+            <thead><tr><th>ID</th><th>Дата и время</th><th>Статус</th><th>Клиент</th><th>Действие</th></tr></thead>
             <tbody>{slots_html}</tbody>
         </table>
     </div>
     """
     return render_page("Расписание", content)
+
 
 @app.post("/add_slot")
 async def add_slot(request: Request, db: Session = Depends(get_db)):
@@ -509,103 +455,17 @@ async def add_slot(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     date_str = form.get('date')
     time_str = form.get('time')
-    duration = int(form.get('duration', 60))
     
     try:
         slot_datetime = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-        
-        # Проверяем не существует ли уже такой слот
-        existing = db.query(ScheduleSlot).filter_by(slot_datetime=slot_datetime).first()
-        if existing:
-            return HTMLResponse("<h3>❌ Слот на это время уже существует!</h3><a href='/schedule'>Назад</a>", status_code=400)
-        
-        slot = ScheduleSlot(
-            slot_datetime=slot_datetime,
-            is_booked=False
-        )
+        slot = ScheduleSlot(slot_datetime=slot_datetime, is_booked=False)
         db.add(slot)
         db.commit()
-        
-        # Если длительность больше часа, создаем дополнительный слот
-        if duration > 60:
-            extra_time = slot_datetime + timedelta(minutes=duration)
-            # Проверяем что такой слот еще не существует
-            extra_existing = db.query(ScheduleSlot).filter_by(slot_datetime=extra_time).first()
-            if not extra_existing:
-                extra_slot = ScheduleSlot(
-                    slot_datetime=extra_time,
-                    is_booked=False
-                )
-                db.add(extra_slot)
-                db.commit()
-        
     except Exception as e:
-        return HTMLResponse(f"<h3>❌ Ошибка: {e}</h3><a href='/schedule'>Назад</a>", status_code=400)
+        pass
     
     return RedirectResponse("/schedule", status_code=303)
 
-@app.post("/add_week_slots")
-async def add_week_slots(request: Request, db: Session = Depends(get_db)):
-    if not verify_token(request):
-        return RedirectResponse("/login", status_code=303)
-    
-    form = await request.form()
-    start_date_str = form.get('start_date')
-    start_time_str = form.get('start_time', '10:00')
-    end_time_str = form.get('end_time', '18:00')
-    interval = int(form.get('interval', 60))
-    duration = int(form.get('duration', 60))
-    
-    try:
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-        start_time = datetime.strptime(start_time_str, "%H:%M").time()
-        end_time = datetime.strptime(end_time_str, "%H:%M").time()
-        
-        slots_created = 0
-        
-        # Создаем слоты на 7 дней
-        for day in range(7):
-            current_date = start_date + timedelta(days=day)
-            
-            # Создаем время начала
-            current_hour = start_time.hour
-            current_minute = start_time.minute
-            
-            while True:
-                slot_time = datetime(
-                    current_date.year, current_date.month, current_date.day,
-                    current_hour, current_minute
-                )
-                
-                # Проверяем не вышли ли за пределы
-                if slot_time.time() > end_time:
-                    break
-                
-                # Проверяем не существует ли уже такой слот
-                existing = db.query(ScheduleSlot).filter_by(slot_datetime=slot_time).first()
-                if not existing and slot_time > datetime.now():
-                    slot = ScheduleSlot(
-                        slot_datetime=slot_time,
-                        is_booked=False
-                    )
-                    db.add(slot)
-                    slots_created += 1
-                
-                # Увеличиваем время на интервал
-                current_minute += interval
-                if current_minute >= 60:
-                    current_hour += current_minute // 60
-                    current_minute = current_minute % 60
-        
-        db.commit()
-        
-        return HTMLResponse(f"""
-        <h3>✅ Создано {slots_created} слотов на неделю!</h3>
-        <a href="/schedule">Вернуться к расписанию</a>
-        """)
-        
-    except Exception as e:
-        return HTMLResponse(f"<h3>❌ Ошибка: {e}</h3><a href='/schedule'>Назад</a>", status_code=400)
 
 @app.post("/delete_slot/{slot_id}")
 async def delete_slot(slot_id: int, request: Request, db: Session = Depends(get_db)):
@@ -619,74 +479,457 @@ async def delete_slot(slot_id: int, request: Request, db: Session = Depends(get_
     
     return RedirectResponse("/schedule", status_code=303)
 
-# ============ КЛИЕНТЫ ============
-@app.get("/clients", response_class=HTMLResponse)
-async def clients_page(request: Request, db: Session = Depends(get_db)):
+
+# ============ УСЛУГИ ============
+@app.get("/services", response_class=HTMLResponse)
+async def services_page(request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
     
-    clients = db.query(User).filter_by(role='client').all()
-    clients_html = ""
-    for client in clients:
-        bookings_count = db.query(Booking).filter_by(user_id=client.id).count()
-        clients_html += f"""
+    services = db.query(Service).all()
+    
+    table_html = ""
+    for s in services:
+        table_html += f"""
         <tr>
-            <td>{client.id}</td>
-            <td>{client.telegram_id}</td>
-            <td>{client.name}</td>
-            <td>{client.phone or '-'}</td>
-            <td>{client.created_at.strftime('%d.%m.%Y') if client.created_at else '-'}</td>
-            <td>{bookings_count}</td>
+            <td>{s.id}</td>
+            <td>{s.name}</td>
+            <td>{s.price_rub}₽</td><td>{s.price_usd}$</td>
+            <td>{s.support_days} дней</td>
+            <td>{"✅ Активна" if s.is_active else "❌ Неактивна"}</td>
+            <td>
+                <form method="post" action="/update_service_price/{s.id}" style="display:inline">
+                    <input type="number" name="price_rub" value="{s.price_rub}" style="width:80px">
+                    <button type="submit" class="btn btn-primary">Обновить</button>
+                </form>
+            </td>
         </tr>
         """
     
-    if not clients:
-        clients_html = '<tr><td colspan="6" style="text-align: center;">Нет клиентов</td></tr>'
+    if not services:
+        table_html = '<tr><td colspan="7" style="text-align: center; color: #999;">Нет услуг</td></tr>'
     
     content = f"""
-    <h1>👥 Список клиентов</h1>
+    <h1>💰 Управление услугами</h1>
     <div class="card">
+        <h3>➕ Добавить услугу</h3>
+        <form method="post" action="/add_service">
+            <div class="form-group"><label>Название:</label><input type="text" name="name" required></div>
+            <div class="form-group"><label>Цена (RUB):</label><input type="number" name="price_rub" required></div>
+            <div class="form-group"><label>Цена (USD):</label><input type="number" name="price_usd" required></div>
+            <div class="form-group"><label>Дней сопровождения:</label><input type="number" name="support_days" value="0"></div>
+            <button type="submit" class="btn btn-primary">➕ Добавить</button>
+        </form>
+    </div>
+    <div class="card">
+        <h3>📋 Список услуг</h3>
         <table>
-            <thead><tr><th>ID</th><th>Telegram ID</th><th>Имя</th><th>Телефон</th><th>Дата регистрации</th><th>Записей</th></tr></thead>
-            <tbody>{clients_html}</tbody>
+            <thead><tr><th>ID</th><th>Название</th><th>Цена (RUB)</th><th>Цена (USD)</th><th>Сопровождение</th><th>Статус</th><th>Действие</th></tr></thead>
+            <tbody>{table_html}</tbody>
         </table>
     </div>
     """
-    return render_page("Клиенты", content)
+    return render_page("Услуги", content)
 
-# ============ ОТЧЁТЫ ============
-@app.get("/reports", response_class=HTMLResponse)
-async def reports_page(request: Request, db: Session = Depends(get_db)):
+
+@app.post("/add_service")
+async def add_service(request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
     
-    total_consultations = db.query(Booking).filter(Booking.payment_status == 'paid').count()
-    total_bookings = db.query(Booking).count()
-    conversion_rate = round((total_consultations / total_bookings * 100) if total_bookings > 0 else 0)
+    form = await request.form()
+    service = Service(
+        name=form.get('name'),
+        price_rub=int(form.get('price_rub')),
+        price_usd=int(form.get('price_usd')),
+        support_days=int(form.get('support_days', 0)),
+        is_active=True
+    )
+    db.add(service)
+    db.commit()
     
-    services = db.query(Service).all()
-    services_html = ""
-    for service in services:
-        count = db.query(Booking).filter_by(service_id=service.id, payment_status='paid').count()
-        revenue = count * service.price_rub
-        services_html += f"<tr><td>{service.name}</td><td>{count}</td><td>{revenue}₽</td></tr>"
+    return RedirectResponse("/services", status_code=303)
+
+
+@app.post("/update_service_price/{service_id}")
+async def update_service_price(service_id: int, request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
     
-    if not services:
-        services_html = '<tr><td colspan="3" style="text-align: center;">Нет данных</td></tr>'
+    form = await request.form()
+    service = db.query(Service).get(service_id)
+    if service:
+        service.price_rub = int(form.get('price_rub'))
+        db.commit()
+    
+    return RedirectResponse("/services", status_code=303)
+
+
+# ============ ВОПРОСЫ ЭКСПЕРТУ ============
+@app.get("/questions", response_class=HTMLResponse)
+async def questions_page(request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    questions = db.query(Question).order_by(Question.created_at.desc()).all()
+    
+    table_html = ""
+    for q in questions:
+        user = db.query(User).get(q.user_id)
+        is_answered_class = "status-answered" if q.status == 'answered' else "status-expert_review"
+        table_html += f"""
+        <tr>
+            <td>{q.id}</td>
+            <td>{user.first_name or user.username if user else '-'}</td>
+            <td>{q.topic or '-'}</td>
+            <td><span class="status {is_answered_class}">{q.status}</span></td>
+            <td>{q.created_at.strftime('%d.%m.%Y %H:%M') if q.created_at else '-'}</td>
+            <td>
+                <a href="/question_detail/{q.id}" class="btn btn-primary">📖 Просмотр</a>
+            </td>
+        </tr>
+        """
+    
+    if not questions:
+        table_html = '<tr><td colspan="6" style="text-align: center; color: #999;">Нет вопросов</td></tr>'
     
     content = f"""
-    <h1>📊 Аналитика и отчёты</h1>
-    <div class="stats">
-        <div class="stat-card"><div class="stat-number">{total_consultations}</div><div class="stat-label">Всего консультаций</div></div>
-        <div class="stat-card"><div class="stat-number">{conversion_rate}%</div><div class="stat-label">Конверсия в оплату</div></div>
-    </div>
+    <h1>❓ Вопросы эксперту</h1>
     <div class="card">
-        <h3>Доход по услугам</h3>
-        <table><thead><tr><th>Услуга</th><th>Количество</th><th>Доход</th></tr></thead>
-        <tbody>{services_html}</tbody></table>
+        <div class="filter-bar">
+            <input type="text" placeholder="Поиск...">
+            <select><option>Все статусы</option></select>
+            <button class="btn btn-primary">Поиск</button>
+        </div>
+        <table>
+            <thead><tr><th>ID</th><th>Пользователь</th><th>Тема</th><th>Статус</th><th>Дата</th><th>Действие</th></tr></thead>
+            <tbody>{table_html}</tbody>
+        </table>
     </div>
     """
-    return render_page("Отчёты", content)
+    return render_page("Вопросы", content)
+
+
+@app.get("/question_detail/{question_id}", response_class=HTMLResponse)
+async def question_detail(request: Request, question_id: str, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    q = db.query(Question).get(question_id)
+    if not q:
+        return HTMLResponse("<h3>Вопрос не найден</h3>")
+    
+    user = db.query(User).get(q.user_id)
+    is_answered = q.status == 'answered'
+    answer_value = q.final_answer if q.final_answer else ''
+    
+    content = f"""
+    <h1>📋 Вопрос #{q.id}</h1>
+    
+    <div class="card">
+        <h3>👤 Пользователь</h3>
+        <p><strong>Имя:</strong> {user.first_name or user.username if user else '-'}<br>
+        <strong>Email:</strong> {user.email or '-'}<br>
+        <strong>Telegram ID:</strong> {user.telegram_id if user else '-'}</p>
+    </div>
+    
+    <div class="card">
+        <h3>❓ Вопрос</h3>
+        <pre>{q.text}</pre>
+    </div>
+    
+    <div class="card">
+        <h3>🤖 Ответ ИИ (YandexGPT)</h3>
+        <p><strong>Уверенность:</strong> {int(q.rag_confidence * 100) if q.rag_confidence else 0}%</p>
+        <pre>{q.rag_answer or 'Не сгенерирован'}</pre>
+        <p><strong>Источники:</strong></p>
+        <ul>{''.join([f'<li>{s}</li>' for s in (q.rag_sources or [])])}</ul>
+    </div>
+    
+    <div class="card">
+        <h3>✏️ {'Редактировать ответ' if is_answered else 'Дополнить ответ'}</h3>
+        <form method="post" action="/update_and_notify/{q.id}">
+            <div class="form-group">
+                <label>Ответ пользователю:</label>
+                <textarea name="answer" rows="12" style="width: 100%; padding: 10px; font-family: monospace;">{answer_value or q.rag_answer or ''}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Комментарий для пользователя (опционально):</label>
+                <textarea name="comment" rows="3" style="width: 100%; padding: 10px;" placeholder="Дополнительный комментарий к ответу..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Уведомить пользователя:</label>
+                <input type="checkbox" name="notify_user" value="true" checked>
+            </div>
+            <button type="submit" class="btn btn-success">💾 {'Обновить и отправить' if is_answered else 'Дополнить и отправить'}</button>
+            <a href="/questions" class="btn btn-primary">◀️ Назад</a>
+        </form>
+    </div>
+    """
+    return render_page(f"Вопрос {q.id}", content)
+
+
+@app.post("/update_and_notify/{question_id}")
+async def update_and_notify(question_id: str, request: Request, db: Session = Depends(get_db)):
+    """Обновление ответа и отправка уведомления пользователю"""
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    form = await request.form()
+    answer = form.get('answer')
+    comment = form.get('comment')
+    notify_user = form.get('notify_user') == 'true'
+    
+    q = db.query(Question).get(question_id)
+    if not q or not answer:
+        return RedirectResponse(f"/question_detail/{question_id}", status_code=303)
+    
+    old_answer = q.final_answer
+    
+    # Обновляем вопрос
+    q.final_answer = answer
+    if q.status != 'answered':
+        q.status = 'answered'
+        q.answered_at = datetime.now()
+        user = db.query(User).get(q.user_id)
+        if user:
+            user.questions_used += 1
+    
+    # Сохраняем в архив
+    existing_archive = db.query(ArchiveEntry).filter_by(question_id=question_id).first()
+    if not existing_archive:
+        archive = ArchiveEntry(
+            question_id=q.id,
+            user_id=q.user_id,
+            question_text=q.text,
+            final_answer=answer,
+            topics=[q.topic] if q.topic else []
+        )
+        db.add(archive)
+    
+    # Логируем действие
+    expert_log = ExpertLog(
+        expert_id=None,
+        question_id=question_id,
+        action='admin_edit',
+        old_answer=old_answer[:500] if old_answer else None,
+        new_answer=answer[:500],
+        revision_notes=comment
+    )
+    db.add(expert_log)
+    db.commit()
+    
+    # Отправляем уведомление
+    if notify_user:
+        user = db.query(User).get(q.user_id)
+        if user and user.telegram_id:
+            try:
+                from aiogram import Bot
+                bot_token = os.getenv('BOT_TOKEN')
+                bot = Bot(token=bot_token) if bot_token else None
+                
+                if bot:
+                    message_text = f"✅ <b>Ответ на ваш вопрос дополнен!</b>\n\n📋 ID вопроса: {question_id}\n\n💬 <b>Ответ:</b>\n{answer[:800]}\n\n"
+                    if comment:
+                        message_text += f"📝 <b>Комментарий:</b>\n{comment}\n\n"
+                    message_text += "Используйте /archive для просмотра всех ответов."
+                    
+                    await bot.send_message(user.telegram_id, message_text, parse_mode="HTML")
+                    await bot.session.close()
+            except Exception as e:
+                print(f"Ошибка отправки: {e}")
+    
+    return RedirectResponse(f"/question_detail/{question_id}", status_code=303)
+
+
+# ============ ОПЛАТЫ ВОПРОСОВ ============
+@app.get("/payments", response_class=HTMLResponse)
+async def payments_page(request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    payments = db.query(PaymentRequest).order_by(PaymentRequest.created_at.desc()).all()
+    
+    table_html = ""
+    for p in payments:
+        user = db.query(User).get(p.user_id)
+        table_html += f"""
+        <tr>
+            <td>{p.id}</td>
+            <td>{user.first_name or user.username if user else '-'}</td>
+            <td>{p.plan}</td>
+            <td>{p.amount_rub}₽</td>
+            <td><span class="status status-{'paid' if p.status == 'confirmed' else 'waiting_confirm'}">{p.status}</span></td>
+            <td>{p.created_at.strftime('%d.%m.%Y %H:%M') if p.created_at else '-'}</td>
+            <td>
+                <form method="post" action="/confirm_payment/{p.id}" style="display:inline">
+                    <button type="submit" class="btn btn-success">✅ Подтвердить</button>
+                </form>
+                <form method="post" action="/reject_payment/{p.id}" style="display:inline">
+                    <button type="submit" class="btn btn-danger">❌ Отклонить</button>
+                </form>
+            </td>
+        </tr>
+        """
+    
+    if not payments:
+        table_html = '<tr><td colspan="7" style="text-align: center; color: #999;">Нет платежей</td></tr>'
+    
+    content = f"""
+    <h1>💳 Оплаты вопросов</h1>
+    <div class="card">
+        <table>
+            <thead><tr><th>ID</th><th>Пользователь</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Дата</th><th>Действие</th></tr></thead>
+            <tbody>{table_html}</tbody>
+        </table>
+    </div>
+    """
+    return render_page("Платежи", content)
+
+
+@app.post("/confirm_payment/{payment_id}")
+async def confirm_payment(payment_id: int, request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    payment = db.query(PaymentRequest).get(payment_id)
+    if payment:
+        payment.status = 'confirmed'
+        payment.confirmed_at = datetime.now()
+        
+        user = db.query(User).get(payment.user_id)
+        if user:
+            user.subscription_plan = payment.plan
+            user.questions_total = payment.questions_count
+            user.questions_used = 0
+            user.subscription_status = 'active'
+            if payment.valid_days > 0:
+                user.subscription_valid_until = datetime.now() + timedelta(days=payment.valid_days)
+            db.commit()
+    
+    return RedirectResponse("/payments", status_code=303)
+
+
+@app.post("/reject_payment/{payment_id}")
+async def reject_payment(payment_id: int, request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    payment = db.query(PaymentRequest).get(payment_id)
+    if payment:
+        payment.status = 'rejected'
+        db.commit()
+    
+    return RedirectResponse("/payments", status_code=303)
+
+
+# ============ ПОЛЬЗОВАТЕЛИ ============
+@app.get("/users", response_class=HTMLResponse)
+async def users_page(request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    
+    table_html = ""
+    for u in users:
+        bookings_count = db.query(Booking).filter_by(user_id=u.id).count()
+        questions_count = db.query(Question).filter_by(user_id=u.id).count()
+        
+        table_html += f"""
+        <tr>
+            <td>{u.id}</td>
+            <td>{u.telegram_id}</td>
+            <td>{u.first_name or u.username or '-'}</td>
+            <td>{u.email or '-'}</td>
+            <td>{u.subscription_plan or '-'}</td>
+            <td>{u.questions_used}/{u.questions_total}</td>
+            <td>{bookings_count}</td>
+            <td>{questions_count}</td>
+        </tr>
+        """
+    
+    if not users:
+        table_html = '<tr><td colspan="8" style="text-align: center; color: #999;">Нет пользователей</td></tr>'
+    
+    content = f"""
+    <h1>👥 Пользователи</h1>
+    <div class="card">
+        <table>
+            <thead><tr><th>ID</th><th>Telegram ID</th><th>Имя</th><th>Email</th><th>Тариф</th><th>Вопросы</th><th>Консультации</th><th>Всего вопросов</th></tr></thead>
+            <tbody>{table_html}</tbody>
+        </table>
+    </div>
+    """
+    return render_page("Пользователи", content)
+
+
+# ============ АРХИВ ============
+@app.get("/archive", response_class=HTMLResponse)
+async def archive_page(request: Request, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    archives = db.query(ArchiveEntry).order_by(ArchiveEntry.created_at.desc()).all()
+    
+    table_html = ""
+    for a in archives:
+        user = db.query(User).get(a.user_id)
+        table_html += f"""
+        <tr>
+            <td>{a.id}</td>
+            <td>{a.question_id}</td>
+            <td>{user.first_name or user.username if user else '-'}</td>
+            <td>{a.question_text[:100]}...</td>
+            <td><a href="/archive_detail/{a.id}" class="btn btn-primary">📖 Просмотр</a></td>
+        </tr>
+        """
+    
+    if not archives:
+        table_html = '<tr><td colspan="5" style="text-align: center; color: #999;">Нет записей в архиве</td></tr>'
+    
+    content = f"""
+    <h1>📋 Архив ответов</h1>
+    <div class="card">
+        <table>
+            <thead><tr><th>ID</th><th>ID вопроса</th><th>Пользователь</th><th>Вопрос</th><th>Действие</th></tr></thead>
+            <tbody>{table_html}</tbody>
+        </table>
+    </div>
+    """
+    return render_page("Архив", content)
+
+
+@app.get("/archive_detail/{archive_id}", response_class=HTMLResponse)
+async def archive_detail(request: Request, archive_id: int, db: Session = Depends(get_db)):
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    a = db.query(ArchiveEntry).get(archive_id)
+    if not a:
+        return HTMLResponse("<h3>Запись не найдена</h3>")
+    
+    user = db.query(User).get(a.user_id)
+    
+    content = f"""
+    <h1>📋 Детали архива #{a.id}</h1>
+    <div class="card">
+        <h3>👤 Пользователь</h3>
+        <p><strong>Имя:</strong> {user.first_name or user.username if user else '-'}<br>
+        <strong>Telegram ID:</strong> {user.telegram_id if user else '-'}</p>
+    </div>
+    <div class="card">
+        <h3>❓ Вопрос</h3>
+        <pre>{a.question_text}</pre>
+    </div>
+    <div class="card">
+        <h3>💬 Ответ</h3>
+        <pre>{a.final_answer}</pre>
+        <a href="/archive" class="btn btn-primary">◀️ Назад</a>
+    </div>
+    """
+    return render_page(f"Архив #{a.id}", content)
+
 
 # ============ НАСТРОЙКИ ============
 @app.get("/settings", response_class=HTMLResponse)
@@ -694,30 +937,25 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
     if not verify_token(request):
         return RedirectResponse("/login", status_code=303)
     
-    services = db.query(Service).all()
-    services_html = ""
-    for service in services:
-        services_html += f"""
-        <tr>
-            <td>{service.id}</td>
-            <td>{service.name}</td>
-            <td>{service.price_rub}₽</td>
-            <td>{"✅ Активна" if service.is_active else "❌ Неактивна"}</td>
-        </tr>
-        """
-    
-    if not services:
-        services_html = '<tr><td colspan="4" style="text-align: center;">Нет услуг</td></tr>'
-    
-    content = f"""
+    content = """
     <h1>⚙️ Настройки системы</h1>
     <div class="card">
-        <h3>Управление услугами</h3>
-        <table><thead><tr><th>ID</th><th>Название</th><th>Цена (RUB)</th><th>Статус</th></tr></thead>
-        <tbody>{services_html}</tbody></table>
+        <h3>Общие настройки</h3>
+        <form method="post" action="/update_settings">
+            <div class="form-group">
+                <label>Пароль администратора:</label>
+                <input type="password" name="admin_password" placeholder="Новый пароль">
+            </div>
+            <div class="form-group">
+                <label>ID экспертов (через запятую):</label>
+                <input type="text" name="expert_ids" placeholder="123456789,987654321">
+            </div>
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </form>
     </div>
     """
     return render_page("Настройки", content)
+
 
 # ============ ВЫХОД ============
 @app.get("/logout")
@@ -726,8 +964,9 @@ async def logout():
     response.delete_cookie("admin_token")
     return response
 
+
 if __name__ == "__main__":
-    print("🚀 Запуск админ-панели...")
+    print("🚀 Запуск админ-панели doTERRA...")
     print("📊 Админка доступна по адресу: http://localhost:8000")
     print("🔑 Пароль: admin123")
     uvicorn.run(app, host="0.0.0.0", port=8000)
