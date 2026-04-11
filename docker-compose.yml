@@ -1,54 +1,88 @@
-# docker-compose.yml (обновить для поддержки полнотекстового поиска)
 version: '3.8'
 
 services:
   db:
     image: postgres:15
     container_name: doterra_db
+    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: doterra_bot
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # Добавить для русской локали
-    command: >
-      postgres -c 'shared_preload_libraries=pg_trgm'
-    
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - doterra_network
+
   bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
     container_name: doterra_bot
-    command: python -m bot.main
+    restart: always
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
       - EXPERT_TELEGRAM_IDS=${EXPERT_TELEGRAM_IDS}
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/doterra_bot
-      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY}
-      - GIGACHAT_AUTH_DATA=${GIGACHAT_AUTH_DATA}
-      - GIGACHAT_MODEL=${GIGACHAT_MODEL}
+      - YANDEX_FOLDER_ID=${YANDEX_FOLDER_ID}
+      - YANDEX_API_KEY=${YANDEX_API_KEY}
+      - YANDEX_MODEL=${YANDEX_MODEL}
+      - RAG_MOCK_MODE=${RAG_MOCK_MODE}
+      - RAG_TOP_K=${RAG_TOP_K}
+      - RAG_CONFIDENCE_THRESHOLD=${RAG_CONFIDENCE_THRESHOLD}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./:/app
-      - uploads:/app/uploads
+      - ./uploads:/app/uploads
+    networks:
+      - doterra_network
+    command: python -m bot.main
 
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.web
     container_name: doterra_web
-    command: uvicorn web_admin.main:app --host 0.0.0.0 --port 8000
+    restart: always
     environment:
       - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/doterra_bot
       - SECRET_KEY=${SECRET_KEY}
-    ports:
-      - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./:/app
+      - ./uploads:/app/uploads
+    networks:
+      - doterra_network
+    command: uvicorn web_admin.simple_app:app --host 0.0.0.0 --port 8000
+
+  nginx:
+    image: nginx:alpine
+    container_name: doterra_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web
+    networks:
+      - doterra_network
+
+networks:
+  doterra_network:
+    driver: bridge
 
 volumes:
   postgres_data:
-  uploads:

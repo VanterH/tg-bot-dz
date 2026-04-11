@@ -11,8 +11,8 @@ def main_menu():
             [KeyboardButton(text="📅 Запись на консультацию")],
             [KeyboardButton(text="❓ Задать вопрос эксперту")],
             [KeyboardButton(text="📊 Мой статус"), KeyboardButton(text="📋 Мои записи")],
-            [KeyboardButton(text="📋 Архив вопросов"), KeyboardButton(text="💳 Пополнить баланс")],
-            [KeyboardButton(text="ℹ️ Помощь")]
+            [KeyboardButton(text="📋 Архив вопросов"), KeyboardButton(text="📋 Поиск в архиве")],
+            [KeyboardButton(text="💳 Пополнить баланс"), KeyboardButton(text="ℹ️ Помощь")]
         ],
         resize_keyboard=True
     )

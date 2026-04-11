@@ -474,9 +474,11 @@ async def book_slot_callback(callback: CallbackQuery):
 
 # ============ МОИ ЗАПИСИ ============
 
+# bot/handlers.py - обновленная функция my_bookings
+
 @router.message(F.text == "📋 Мои записи")
 async def my_bookings(message: Message):
-    """Просмотр своих записей на консультацию"""
+    """Просмотр своих записей на консультацию (только активные)"""
     session = SessionLocal()
     user = session.query(User).filter_by(telegram_id=message.from_user.id).first()
     
@@ -485,27 +487,44 @@ async def my_bookings(message: Message):
         session.close()
         return
     
-    bookings = session.query(Booking).filter_by(user_id=user.id).order_by(Booking.created_at.desc()).all()
+    # 🔴 ИЗМЕНЕНИЕ: Показываем только активные записи (с подтвержденной оплатой и не прошедшие)
+    # Исключаем записи со статусом 'rejected' и 'cancelled'
+    bookings = session.query(Booking).filter(
+        Booking.user_id == user.id,
+        Booking.payment_status.in_(['paid', 'waiting_confirm', 'pending']),
+        Booking.consultation_datetime > datetime.now()  # только будущие записи
+    ).order_by(Booking.created_at.desc()).all()
     
     if not bookings:
-        await message.answer("📭 У вас пока нет записей.\nНажмите «Запись на консультацию» чтобы создать новую.")
+        await message.answer(
+            "📭 <b>У вас нет активных записей</b>\n\n"
+            "Нажмите «📅 Запись на консультацию» чтобы создать новую.",
+            parse_mode="HTML"
+        )
     else:
-        text = "📋 <b>Ваши записи на консультацию:</b>\n\n"
+        text = "📋 <b>Ваши активные записи на консультацию:</b>\n\n"
+        
         for b in bookings:
             service = session.query(Service).get(b.service_id)
             status_emoji = {
                 'pending': '⏳',
                 'waiting_confirm': '🟡',
                 'paid': '✅',
-                'rejected': '❌'
             }.get(b.payment_status, '❓')
             
+            status_text = {
+                'pending': 'Ожидает оплаты',
+                'waiting_confirm': 'Ожидает подтверждения',
+                'paid': 'Подтверждено',
+            }.get(b.payment_status, b.payment_status)
+            
             text += f"{status_emoji} <b>Запись #{b.id}</b>\n"
-            text += f"   Услуга: {service.name if service else '-'}\n"
-            text += f"   Статус: {b.payment_status}\n"
+            text += f"   📅 Услуга: {service.name if service else '-'}\n"
+            text += f"   💰 Сумма: {service.price_rub if service else 0}₽\n"
+            text += f"   📊 Статус: {status_text}\n"
             if b.consultation_datetime:
-                text += f"   Дата: {b.consultation_datetime.strftime('%d.%m.%Y %H:%M')}\n"
-            text += f"   Создана: {b.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                text += f"   ⏰ Дата: {b.consultation_datetime.strftime('%d.%m.%Y %H:%M')}\n"
+            text += f"   📅 Создана: {b.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
         
         await message.answer(text, parse_mode="HTML")
     
@@ -719,34 +738,30 @@ async def process_additional(message: Message, state: FSMContext):
             await state.set_state(QuestionStates.waiting_for_clarification)
             await state.update_data(question_id=question_id)
         else:
-            # Отправляем ответ пользователю сразу
-            question.status = 'answered'
-            question.final_answer = rag_result.get('answer')
-            question.answered_at = datetime.now()
-            
-            # Сохраняем в архив
-            archive = ArchiveEntry(
-                question_id=question_id,
-                user_id=user.id,
-                question_text=full_question,
-                final_answer=rag_result.get('answer'),
-                topics=[data.get('topic')]
-            )
-            session.add(archive)
-            
-            # Уменьшаем лимит вопросов
-            user.questions_used += 1
+            # 🔴 ИЗМЕНЕНИЕ: Не отправляем ответ пользователю сразу
+            question.status = 'expert_review'
             session.commit()
             
+            # Отправляем уведомление эксперту
+            await send_expert_notification(
+                message.bot,
+                question_id,
+                full_question,
+                rag_result.get('answer'),
+                rag_result.get('sources', []),
+                rag_result.get('confidence', 0),
+                auto_answered=False
+            )
+            
             await message.answer(
-                f"✅ <b>Ответ на ваш вопрос:</b>\n\n"
-                f"{rag_result.get('answer')}\n\n"
-                f"📋 ID вопроса: {question_id}\n\n"
-                f"Используйте /archive для просмотра всех ответов.",
+                f"🔄 <b>Ваш вопрос передан эксперту</b>\n\n"
+                f"📋 ID вопроса: {question_id}\n"
+                f"⏳ Ответ вы получите после проверки экспертом.\n\n"
+                f"Используйте /status для проверки статуса вопроса.",
                 parse_mode="HTML"
             )
-            await state.clear()
-            
+            await state.clear()   
+                 
     except Exception as e:
         logging.error(f"RAG generation error: {e}")
         question.status = 'expert_review'
@@ -1015,6 +1030,8 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 
 # ============ ОБРАБОТЧИКИ КНОПОК ЭКСПЕРТА ============
 
+# bot/handlers.py - в функции expert_approve_question
+
 @router.callback_query(F.data.startswith("approve_question_"))
 async def expert_approve_question(callback: CallbackQuery):
     """Эксперт утверждает ответ"""
@@ -1029,7 +1046,6 @@ async def expert_approve_question(callback: CallbackQuery):
         session.close()
         return
     
-    # Проверяем, не отвечен ли уже вопрос
     if question.status == 'answered':
         await callback.message.edit_text("⚠️ Вопрос уже был отвечен")
         await callback.answer()
@@ -1042,9 +1058,9 @@ async def expert_approve_question(callback: CallbackQuery):
     question.answered_at = datetime.now()
     question.expert_id = callback.from_user.id
     
-    # Уменьшаем лимит вопросов у пользователя
+    # Уменьшаем лимит вопросов
     user = session.query(User).get(question.user_id)
-    if user and question.status != 'answered':
+    if user:
         user.questions_used += 1
     
     # Сохраняем в архив
@@ -1058,14 +1074,14 @@ async def expert_approve_question(callback: CallbackQuery):
     session.add(archive)
     session.commit()
     
-    # Уведомляем пользователя
-    if user:
+    # 🔴 ОТПРАВЛЯЕМ ОТВЕТ ПОЛЬЗОВАТЕЛЮ
+    if user and user.telegram_id:
         try:
             await callback.bot.send_message(
                 user.telegram_id,
-                f"✅ <b>Эксперт подтвердил ответ на ваш вопрос!</b>\n\n"
+                f"✅ <b>Эксперт утвердил ответ на ваш вопрос!</b>\n\n"
                 f"📋 ID вопроса: {question_id}\n\n"
-                f"💬 Ответ:\n{question.rag_answer[:500]}",
+                f"💬 <b>Ответ:</b>\n{question.rag_answer}",
                 parse_mode="HTML"
             )
         except Exception as e:
@@ -1306,3 +1322,100 @@ async def process_supplement(message: Message, state: FSMContext):
     
     session.close()
     await state.clear()
+    
+    
+# bot/handlers.py - добавьте новый обработчик
+
+@router.message(F.text == "📋 Поиск в архиве")
+@router.message(Command("search"))
+async def search_archive(message: Message, state: FSMContext):
+    """Поиск вопросов в архиве"""
+    session = SessionLocal()
+    user = session.query(User).filter_by(telegram_id=message.from_user.id).first()
+    
+    if not user:
+        await message.answer("❌ Пользователь не найден. Отправьте /start")
+        session.close()
+        return
+    
+    # Получаем последние 10 вопросов из архива пользователя
+    archives = session.query(ArchiveEntry).filter_by(
+        user_id=user.id
+    ).order_by(ArchiveEntry.created_at.desc()).limit(10).all()
+    
+    if not archives:
+        await message.answer(
+            "📭 <b>В вашем архиве пока нет вопросов</b>\n\n"
+            "Задайте первый вопрос с помощью кнопки «❓ Задать вопрос эксперту»",
+            parse_mode="HTML"
+        )
+        session.close()
+        return
+    
+    # Создаем клавиатуру с вопросами
+    kb_buttons = []
+    for a in archives:
+        # Берем первые 50 символов вопроса
+        short_question = a.question_text[:50].replace('\n', ' ')
+        kb_buttons.append([InlineKeyboardButton(
+            text=f"📌 {short_question}...",
+            callback_data=f"show_archive_answer_{a.id}"
+        )])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
+    
+    await message.answer(
+        "📋 <b>Выберите вопрос из архива:</b>\n\n"
+        "Нажмите на вопрос, чтобы посмотреть ответ:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+    session.close()
+
+
+@router.callback_query(F.data.startswith("show_archive_answer_"))
+async def show_archive_answer(callback: CallbackQuery):
+    """Показать ответ из архива"""
+    archive_id = int(callback.data.split("_")[3])
+    
+    session = SessionLocal()
+    archive = session.query(ArchiveEntry).get(archive_id)
+    
+    if not archive:
+        await callback.message.edit_text("❌ Ответ не найден")
+        await callback.answer()
+        session.close()
+        return
+    
+    # Форматируем ответ
+    answer_text = f"""
+📋 <b>Вопрос из архива</b>
+
+❓ <b>Вопрос:</b>
+{archive.question_text}
+
+💬 <b>Ответ:</b>
+{archive.final_answer}
+
+📅 <b>Дата:</b> {archive.created_at.strftime('%d.%m.%Y %H:%M')}
+"""
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад к списку", callback_data="back_to_archive_search")]
+    ])
+    
+    await callback.message.edit_text(answer_text, parse_mode="HTML", reply_markup=kb)
+    session.close()
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_archive_search")
+async def back_to_archive_search(callback: CallbackQuery):
+    """Вернуться к списку архива"""
+    await search_archive(callback.message, None)
+    await callback.answer()
+    
+@router.message(Command("search"))
+async def cmd_search(message: Message):
+    """Поиск в архиве по команде"""
+    await search_archive(message, None)

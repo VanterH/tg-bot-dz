@@ -134,6 +134,13 @@ BASE_HTML = """
             font-size: 13px;
             line-height: 1.5;
         }}
+        .btn-warning {{
+            background: #f39c12;
+            color: white;
+        }}
+        .btn-warning:hover {{
+            background: #e67e22;
+        }}
         .message-success {{ background: #d4edda; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
         .message-error {{ background: #f8d7da; color: #721c24; padding: 12px; border-radius: 8px; margin-bottom: 20px; }}
     </style>
@@ -278,10 +285,12 @@ async def bookings_page(request: Request, db: Session = Depends(get_db)):
         service = db.query(Service).get(b.service_id)
         
         receipt_link = ""
-        if b.payment_proof_url and os.path.exists(b.payment_proof_url):
-            receipt_link = f'<a href="/uploads/{os.path.basename(b.payment_proof_url)}" target="_blank" class="btn btn-primary">📷 Чек</a>'
+        if b.payment_proof_url:
+            # Используем правильный маршрут /receipt/{id}
+            receipt_link = f'<a href="/receipt/{b.id}" target="_blank" class="btn btn-info">📷 Чек</a>'
         else:
-            receipt_link = '<span class="status status-pending">Нет чека</span>'
+            receipt_link = '<span style="color: #999;">Нет чека</span>'
+        
         
         if b.payment_status == 'waiting_confirm':
             action_buttons = f'''
@@ -291,9 +300,25 @@ async def bookings_page(request: Request, db: Session = Depends(get_db)):
                 <form method="post" action="/reject_booking/{b.id}" style="display:inline">
                     <button type="submit" class="btn btn-danger">❌ Отклонить</button>
                 </form>
+                <form method="post" action="/delete_booking/{b.id}" style="display:inline" 
+                    onsubmit="return confirm('Удалить запись? Пользователь получит уведомление.')">
+                    <button type="submit" class="btn btn-warning">🗑️ Удалить</button>
+                </form>
+            '''
+        elif b.payment_status == 'paid':
+            action_buttons = f'''
+                <form method="post" action="/delete_booking/{b.id}" style="display:inline" 
+                    onsubmit="return confirm('Удалить запись? Пользователь получит уведомление.')">
+                    <button type="submit" class="btn btn-warning">🗑️ Удалить</button>
+                </form>
             '''
         else:
-            action_buttons = '<span class="status status-pending">-</span>'
+            action_buttons = f'''
+                <form method="post" action="/delete_booking/{b.id}" style="display:inline" 
+                    onsubmit="return confirm('Удалить запись? Пользователь получит уведомление.')">
+                    <button type="submit" class="btn btn-warning">🗑️ Удалить</button>
+                </form>
+            '''
         
         table_html += f"""
         <tr>
@@ -364,6 +389,33 @@ async def confirm_booking(booking_id: int, request: Request, db: Session = Depen
                 print(f"Ошибка: {e}")
     
     return RedirectResponse("/bookings", status_code=303)
+
+
+@app.get("/receipt/{booking_id}")
+async def view_receipt(booking_id: int, request: Request, db: Session = Depends(get_db)):
+    """Просмотр фото чека"""
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    booking = db.query(Booking).get(booking_id)
+    if not booking or not booking.payment_proof_url:
+        return HTMLResponse("<h3>❌ Чек не найден</h3>", status_code=404)
+    
+    # Получаем путь к файлу
+    file_path = booking.payment_proof_url
+    
+    # Проверяем существует ли файл
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/jpeg")
+    else:
+        # Пробуем найти файл в папке uploads
+        filename = os.path.basename(file_path)
+        alt_path = os.path.join("uploads", filename)
+        if os.path.exists(alt_path):
+            return FileResponse(alt_path, media_type="image/jpeg")
+        
+        return HTMLResponse(f"<h3>❌ Файл не найден: {file_path}</h3>", status_code=404)
+
 
 
 @app.post("/reject_booking/{booking_id}")
@@ -474,11 +526,78 @@ async def delete_slot(slot_id: int, request: Request, db: Session = Depends(get_
     
     slot = db.query(ScheduleSlot).get(slot_id)
     if slot:
+        # Если слот был забронирован, уведомляем пользователя
+        if slot.is_booked and slot.booking_id:
+            booking = db.query(Booking).get(slot.booking_id)
+            if booking:
+                user = db.query(User).get(booking.user_id)
+                if user and user.telegram_id:
+                    try:
+                        from aiogram import Bot
+                        bot_token = os.getenv('BOT_TOKEN')
+                        bot = Bot(token=bot_token) if bot_token else None
+                        
+                        if bot:
+                            await bot.send_message(
+                                user.telegram_id,
+                                f"⚠️ <b>Ваша запись на консультацию отменена администратором</b>\n\n"
+                                f"📅 Запланированное время: {slot.slot_datetime.strftime('%d.%m.%Y %H:%M')}\n\n"
+                                f"Пожалуйста, выберите новое время в боте.",
+                                parse_mode="HTML"
+                            )
+                            await bot.session.close()
+                    except Exception as e:
+                        print(f"Ошибка отправки уведомления: {e}")
+        
         db.delete(slot)
         db.commit()
     
     return RedirectResponse("/schedule", status_code=303)
 
+
+@app.post("/cancel_booking/{booking_id}")
+async def cancel_booking(booking_id: int, request: Request, db: Session = Depends(get_db)):
+    """Отмена записи на консультацию"""
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    booking = db.query(Booking).get(booking_id)
+    if booking:
+        user = db.query(User).get(booking.user_id)
+        
+        # Освобождаем слот если был
+        if booking.consultation_datetime:
+            slot = db.query(ScheduleSlot).filter_by(
+                slot_datetime=booking.consultation_datetime,
+                is_booked=True
+            ).first()
+            if slot:
+                slot.is_booked = False
+                slot.booking_id = None
+        
+        # Удаляем запись
+        db.delete(booking)
+        db.commit()
+        
+        # Уведомляем пользователя
+        if user and user.telegram_id:
+            try:
+                from aiogram import Bot
+                bot_token = os.getenv('BOT_TOKEN')
+                bot = Bot(token=bot_token) if bot_token else None
+                
+                if bot:
+                    await bot.send_message(
+                        user.telegram_id,
+                        f"⚠️ <b>Ваша запись была отменена администратором</b>\n\n"
+                        f"Вы можете создать новую запись в боте.",
+                        parse_mode="HTML"
+                    )
+                    await bot.session.close()
+            except Exception as e:
+                print(f"Ошибка: {e}")
+    
+    return RedirectResponse("/bookings", status_code=303)
 
 # ============ УСЛУГИ ============
 @app.get("/services", response_class=HTMLResponse)
@@ -955,6 +1074,74 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
     </div>
     """
     return render_page("Настройки", content)
+
+# web_admin/simple_app.py - добавьте новый эндпоинт
+
+# web_admin/simple_app.py - исправленная функция delete_booking
+
+@app.post("/delete_booking/{booking_id}")
+async def delete_booking(booking_id: int, request: Request, db: Session = Depends(get_db)):
+    """Полное удаление записи на консультацию"""
+    if not verify_token(request):
+        return RedirectResponse("/login", status_code=303)
+    
+    booking = db.query(Booking).get(booking_id)
+    if not booking:
+        return RedirectResponse("/bookings", status_code=303)
+    
+    user = db.query(User).get(booking.user_id)
+    service = db.query(Service).get(booking.service_id)
+    
+    # Освобождаем слот если был занят
+    if booking.consultation_datetime:
+        slot = db.query(ScheduleSlot).filter_by(
+            slot_datetime=booking.consultation_datetime,
+            is_booked=True
+        ).first()
+        if slot:
+            slot.is_booked = False
+            slot.booking_id = None
+            db.commit()
+    
+    # Отправляем уведомление пользователю с предложением выбрать новое время
+    if user and user.telegram_id:
+        try:
+            from aiogram import Bot
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            bot_token = os.getenv('BOT_TOKEN')
+            bot = Bot(token=bot_token) if bot_token else None
+            
+            if bot:
+                # Создаем кнопку для выбора нового времени
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📅 Выбрать новое время", callback_data="choose_slot")]
+                ])
+                
+                message_text = (
+                    f"⚠️ <b>Ваша запись на консультацию была удалена администратором</b>\n\n"
+                    f"📋 <b>Детали удаленной записи:</b>\n"
+                    f"   🆔 ID записи: {booking.id}\n"
+                    f"   📅 Услуга: {service.name if service else '-'}\n"
+                    f"   💰 Сумма: {service.price_rub if service else 0}₽\n"
+                    f"   📅 Статус оплаты: {booking.payment_status}\n"
+                )
+                
+                if booking.consultation_datetime:
+                    f"   ⏰ Запланированное время: {booking.consultation_datetime.strftime('%d.%m.%Y %H:%M')}\n"
+                    f"\n❓ <b>Вы можете выбрать новое время для консультации:</b>"
+                
+                await bot.send_message(user.telegram_id, message_text, parse_mode="HTML", reply_markup=kb)
+                await bot.session.close()
+                print(f"✅ Уведомление отправлено пользователю {user.telegram_id}")
+        except Exception as e:
+            print(f"❌ Ошибка отправки уведомления: {e}")
+    
+    # Удаляем запись из БД
+    db.delete(booking)
+    db.commit()
+    
+    return RedirectResponse("/bookings", status_code=303)
 
 
 # ============ ВЫХОД ============
