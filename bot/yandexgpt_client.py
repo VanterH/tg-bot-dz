@@ -3,9 +3,8 @@ import os
 import logging
 import requests
 from typing import Optional
-from dotenv import load_dotenv
-
-load_dotenv()
+#from dotenv import load_dotenv
+#load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 
