@@ -5,16 +5,26 @@ on:
     branches: ["main"]
 
 jobs:
-  summary:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build Docker image
+      - name: Build Docker image with secrets
         run: |
-          docker build -t dt-app:latest .
+          docker build \
+            --build-arg BOT_TOKEN="${{ secrets.BOT_TOKEN }}" \
+            --build-arg ADMIN_TELEGRAM_ID="${{ secrets.ADMIN_TELEGRAM_ID }}" \
+            --build-arg EXPERT_TELEGRAM_IDS="${{ secrets.EXPERT_TELEGRAM_IDS }}" \
+            --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            --build-arg DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --build-arg YANDEX_FOLDER_ID="${{ secrets.YANDEX_FOLDER_ID }}" \
+            --build-arg YANDEX_API_KEY="${{ secrets.YANDEX_API_KEY }}" \
+            --build-arg SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+            --build-arg RAG_MOCK_MODE="${{ secrets.RAG_MOCK_MODE }}" \
+            -t dt-app:latest .
 
       - name: Tag Docker image for registry
         run: docker tag dt-app:latest aroma-images.registry.twcstorage.ru/dt-app:latest
