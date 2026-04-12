@@ -2,20 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Установка системных зависимостей
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование и установка Python зависимостей
+# Копируем зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копирование всего проекта
+# Копируем весь проект
 COPY . .
 
-# Создание директории для загрузок
+# Создаем директорию для uploads
 RUN mkdir -p uploads
 
+# Команда для запуска бота
 CMD ["python", "-m", "bot.main"]
