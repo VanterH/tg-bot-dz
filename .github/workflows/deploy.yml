@@ -1,28 +1,30 @@
-name: Deploy to VDS
+name: Deploy to registry (Production)
 
 on:
   push:
-    branches: [ main ]
+    branches: ["main"]
 
 jobs:
-  deploy:
+  summary:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Setup SSH
-      run: |
-        mkdir -p ~/.ssh/
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.VDS_HOST }} >> ~/.ssh/known_hosts
-    
-    - name: Deploy
-      run: |
-        ssh ${{ secrets.VDS_USER }}@${{ secrets.VDS_HOST }} '
-          cd /app/telegram-booking-bot
-          git pull
-          docker-compose down
-          docker-compose up -d --build
-          docker system prune -f
-        '
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t dt-app:latest .
+
+      - name: Tag Docker image for registry
+        run: docker tag dt-app:latest aroma-images.registry.twcstorage.ru/dt-app:latest
+
+      - name: Login to Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: aroma-images.registry.twcstorage.ru
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Push Docker image
+        run: docker push aroma-images.registry.twcstorage.ru/dt-app:latest
