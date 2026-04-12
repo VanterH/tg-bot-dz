@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Используем новую базу данных
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/doterra_bot')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:toor@doterrabot-db-bup2tl:5432/doterra_bot')
 
 if 'sqlite' in DATABASE_URL:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
