@@ -1,40 +1,41 @@
-name: Deploy to registry (Production)
+name: Build and Push to Registry
 
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:  # для ручного запуска
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Build Docker image with secrets
-        run: |
-          docker build \
-            --build-arg BOT_TOKEN="${{ secrets.BOT_TOKEN }}" \
-            --build-arg ADMIN_TELEGRAM_ID="${{ secrets.ADMIN_TELEGRAM_ID }}" \
-            --build-arg EXPERT_TELEGRAM_IDS="${{ secrets.EXPERT_TELEGRAM_IDS }}" \
-            --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            --build-arg DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-            --build-arg YANDEX_FOLDER_ID="${{ secrets.YANDEX_FOLDER_ID }}" \
-            --build-arg YANDEX_API_KEY="${{ secrets.YANDEX_API_KEY }}" \
-            --build-arg SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-            --build-arg RAG_MOCK_MODE="${{ secrets.RAG_MOCK_MODE }}" \
-            -t dt-app:latest .
-
-      - name: Tag Docker image for registry
-        run: docker tag dt-app:latest aroma-images.registry.twcstorage.ru/dt-app:latest
-
+      
       - name: Login to Docker Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: aroma-images.registry.twcstorage.ru
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
-
-      - name: Push Docker image
-        run: docker push aroma-images.registry.twcstorage.ru/dt-app:latest
+      
+      - name: Build and push Bot image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.bot
+          push: true
+          tags: |
+            aroma-images.registry.twcstorage.ru/doterra-bot:latest
+            aroma-images.registry.twcstorage.ru/doterra-bot:${{ github.sha }}
+      
+      - name: Build and push Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.web
+          push: true
+          tags: |
+            aroma-images.registry.twcstorage.ru/doterra-web:latest
+            aroma-images.registry.twcstorage.ru/doterra-web:${{ github.sha }}
