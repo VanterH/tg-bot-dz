@@ -2,10 +2,10 @@
 import os
 import logging
 from typing import Dict, List, Any
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from bot.yandexgpt_client import yandex_client
 
-load_dotenv()
+#load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 
