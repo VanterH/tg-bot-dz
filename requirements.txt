@@ -1,28 +1,10 @@
-# Core
 aiogram==3.2.0
 fastapi==0.104.1
 uvicorn==0.24.0
 python-dotenv==1.0.0
-
-# Database
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-alembic==1.12.1
-
-# Templates
 jinja2==3.1.2
-
-# HTTP Client
 requests==2.31.0
 httpx==0.25.2
-
-# RAG & AI
-sentence-transformers==2.2.2
-yandexcloud==0.300.0
-
-# Scheduler
 apscheduler==3.10.4
-
-# Data Processing
-pandas==2.1.3
-openpyxl==3.1.2
