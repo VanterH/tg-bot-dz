@@ -3,10 +3,10 @@ import logging
 import os
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from bot.handlers import router
 
-load_dotenv()
+#load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # ============ ФУНКЦИЯ ОЧИСТКИ БД ============
