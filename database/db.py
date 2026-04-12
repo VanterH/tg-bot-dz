@@ -3,9 +3,9 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database.models import Base
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 
-load_dotenv()
+#load_dotenv()
 
 # Используем новую базу данных
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:toor@doterrabot-db-bup2tl:5432/doterra_bot')
